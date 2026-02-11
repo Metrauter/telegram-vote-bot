@@ -2,9 +2,10 @@ package com.example;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.ChatMember;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
@@ -18,11 +19,10 @@ import java.util.concurrent.TimeUnit;
 
 public class VoteBot extends TelegramLongPollingBot {
 
-    // Заміни на свій чат (групу) - можна отримати @username або chatId
     private static final String GROUP_ID = "@futsal_pavlograd";
     private final Map<Long, String> votes = new HashMap<>();
-    private Integer messageIdWithPoll = null; // повідомлення для оновлення результатів
-    private final List<String> options = Arrays.asList("Команда A", "Команда B", "Команда C", "Команда D");
+    private final List<String> options = new ArrayList<>();
+    private Integer messageIdWithPoll = null;
 
     @Override
     public String getBotUsername() {
@@ -37,18 +37,23 @@ public class VoteBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
 
-        // Обробка повідомлень (команд)
         if (update.hasMessage() && update.getMessage().hasText()) {
             String chatId = update.getMessage().getChatId().toString();
             String text = update.getMessage().getText();
+            Long userId = update.getMessage().getFrom().getId();
 
-            // Команда для старту нового опитування
+            // Команда для запуску нового опитування
             if (text.startsWith("/startpoll")) {
-                // формат: /startpoll Команда A;Команда B;Команда C
+
+                // Перевірка: чи користувач адміністратор
+                if (!isUserAdmin(userId)) {
+                    sendMessage(chatId, "Тільки адміністратори можуть запускати опитування.");
+                    return;
+                }
+
                 String[] parts = text.split(" ", 2);
                 if (parts.length < 2) {
-                    sendMessage(chatId, "Вкажіть варіанти через крапку з комою, наприклад:\n" +
-                            "/startpoll Команда A;Команда B;Команда C");
+                    sendMessage(chatId, "Вкажіть варіанти через крапку з комою:\n/startpoll Варіант1;Варіант2;Варіант3");
                     return;
                 }
 
@@ -58,13 +63,13 @@ public class VoteBot extends TelegramLongPollingBot {
                     options.add(option.trim());
                 }
 
-                votes.clear(); // чистимо попередні голоси
-                sendVoteButtons(GROUP_ID); // публікуємо голосування у групі
+                votes.clear();
+                sendVoteButtons(GROUP_ID);
                 sendMessage(chatId, "Опитування запущено ✅");
             }
         }
 
-        // Обробка натискань кнопок
+        // Обробка голосів через кнопки
         if (update.hasCallbackQuery()) {
             Long userId = update.getCallbackQuery().getFrom().getId();
             String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
@@ -85,7 +90,6 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
-
     private boolean isUserSubscribed(Long userId) {
         try {
             GetChatMember getChatMember = new GetChatMember();
@@ -93,10 +97,17 @@ public class VoteBot extends TelegramLongPollingBot {
             getChatMember.setUserId(userId);
 
             String status = execute(getChatMember).getStatus();
-            return status.equals("member") ||
-                    status.equals("administrator") ||
-                    status.equals("creator");
+            return status.equals("member") || status.equals("administrator") || status.equals("creator");
+        } catch (TelegramApiException e) {
+            return false;
+        }
+    }
 
+    private boolean isUserAdmin(Long userId) {
+        try {
+            ChatMember member = execute(new GetChatMember(GROUP_ID, userId));
+            String status = member.getStatus();
+            return status.equals("administrator") || status.equals("creator");
         } catch (TelegramApiException e) {
             return false;
         }
@@ -108,7 +119,7 @@ public class VoteBot extends TelegramLongPollingBot {
             InlineKeyboardButton button = new InlineKeyboardButton();
             button.setText(option);
             button.setCallbackData(option);
-            rows.add(Collections.singletonList(button)); // вертикальні кнопки
+            rows.add(Collections.singletonList(button)); // вертикально
         }
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
@@ -119,7 +130,7 @@ public class VoteBot extends TelegramLongPollingBot {
 
         try {
             var sentMessage = execute(message);
-            messageIdWithPoll = sentMessage.getMessageId(); // зберігаємо ID повідомлення
+            messageIdWithPoll = sentMessage.getMessageId();
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
@@ -150,22 +161,19 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    private void sendMessage(String chatId, String text) {
+        try {
+            execute(new SendMessage(chatId, text));
+        } catch (TelegramApiException ignored) {}
+    }
+
     public static void main(String[] args) throws Exception {
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         VoteBot bot = new VoteBot();
         botsApi.registerBot(bot);
 
-        // Запускаємо автоматичне оновлення результатів кожні 30 секунд
+        // Авто-оновлення результатів кожні 30 секунд
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
         executor.scheduleAtFixedRate(bot::updateResults, 30, 30, TimeUnit.SECONDS);
-
-        // Стартове голосування
-        bot.sendVoteButtons(GROUP_ID);
-    }
-
-    private void sendMessage(String chatId, String text) {
-        try {
-            execute(new SendMessage(chatId, text));
-        } catch (TelegramApiException ignored) {}
     }
 }
