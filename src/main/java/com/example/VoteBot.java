@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 public class VoteBot extends TelegramLongPollingBot {
 
     private static final String GROUP_CHAT_ID = "-1003860160178";
+
     private static final Set<Long> ADMIN_IDS = Set.of(
             875558201L,
             636575553L
@@ -79,14 +80,17 @@ public class VoteBot extends TelegramLongPollingBot {
             Long userId = update.getCallbackQuery().getFrom().getId();
             String callbackId = update.getCallbackQuery().getId();
             String data = update.getCallbackQuery().getData();
-            String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
             // Перевірка підписки на канал
             if (!isUserSubscribed(userId)) {
+                // Якщо користувач вже голосував, видаляємо його голос
+                votes.remove(userId);
+                sendOrUpdatePollMessage(GROUP_CHAT_ID);
+
                 try {
                     execute(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.builder()
                             .callbackQueryId(callbackId)
-                            .text("Ви не підписані на канал! Підпишіться, щоб голосувати.")
+                            .text("Ви не підписані на канал! Ваш голос скасовано.")
                             .showAlert(true)
                             .build());
                 } catch (TelegramApiException e) {
@@ -135,12 +139,12 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
-    // --- Відправка або оновлення одного повідомлення ---
+    // --- Відправка або оновлення одного повідомлення з кнопками і результатами ---
     private void sendOrUpdatePollMessage(String chatId) {
         StringBuilder sb = new StringBuilder("Голосування:\n");
         for (String option : options) {
-            sb.append(option).append(": ").append(votes.values().stream().filter(v -> v.equals(option)).count())
-                    .append(" голосів\n");
+            long count = votes.values().stream().filter(v -> v.equals(option)).count();
+            sb.append(option).append(": ").append(count).append(" голосів\n");
         }
 
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -175,7 +179,17 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    // --- Періодичне оновлення результатів та перевірка підписок ---
     private void updatePoll() {
+        // Видаляємо голоси користувачів, які відписалися
+        List<Long> toRemove = new ArrayList<>();
+        for (Long userId : votes.keySet()) {
+            if (!isUserSubscribed(userId)) {
+                toRemove.add(userId);
+            }
+        }
+        for (Long id : toRemove) votes.remove(id);
+
         if (messageIdWithPoll != null) {
             sendOrUpdatePollMessage(GROUP_CHAT_ID);
         }
@@ -193,6 +207,7 @@ public class VoteBot extends TelegramLongPollingBot {
         botsApi.registerBot(bot);
 
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleAtFixedRate(bot::updatePoll, 5, 5, TimeUnit.SECONDS);
+        // Перевірка підписок і оновлення результатів кожні 10 секунд
+        executor.scheduleAtFixedRate(bot::updatePoll, 10, 10, TimeUnit.SECONDS);
     }
 }
