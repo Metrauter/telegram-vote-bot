@@ -118,8 +118,6 @@ public class VoteBot extends TelegramLongPollingBot {
 
     // Оновлення результатів
     private void updateResults() {
-        if (messageIdWithPoll == null) return;
-
         Map<String, Integer> counts = new HashMap<>();
         for (String vote : votes.values()) {
             counts.put(vote, counts.getOrDefault(vote, 0) + 1);
@@ -130,17 +128,9 @@ public class VoteBot extends TelegramLongPollingBot {
             sb.append(option).append(": ").append(counts.getOrDefault(option, 0)).append(" голосів\n");
         }
 
-        EditMessageText edit = new EditMessageText();
-        edit.setChatId(GROUP_CHAT_ID);
-        edit.setMessageId(messageIdWithPoll);
-        edit.setText(sb.toString());
-
-        try {
-            execute(edit);
-        } catch (TelegramApiException e) {
-            e.printStackTrace();
-        }
+        sendMessage(GROUP_CHAT_ID, sb.toString()); // просто нове повідомлення
     }
+
 
     // Відправка простого повідомлення
     private void sendMessage(String chatId, String text) {
