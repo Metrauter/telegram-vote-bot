@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 public class VoteBot extends TelegramLongPollingBot {
 
     // ⚠ Заміни на числовий chatId твоєї групи
-    private static final String GROUP_CHAT_ID = "636575553";
+    private static final String GROUP_CHAT_ID = "-1003860160178";
 
     // Список userId адміністраторів, які можуть запускати опитування
     private static final Set<Long> ADMIN_IDS = Set.of(
