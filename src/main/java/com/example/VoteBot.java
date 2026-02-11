@@ -2,8 +2,8 @@ package com.example;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
@@ -17,30 +17,26 @@ import java.util.concurrent.TimeUnit;
 
 public class VoteBot extends TelegramLongPollingBot {
 
-    // ⚠ Заміни на числовий chatId твоєї групи
     private static final String GROUP_CHAT_ID = "-1003860160178";
 
-    // Список userId адміністраторів, які можуть запускати опитування
     private static final Set<Long> ADMIN_IDS = Set.of(
-            875558201L,  // твій ID
-            636575553L   // інший адміністратор
+            875558201L,
+            636575553L
     );
 
     private final Map<Long, String> votes = new HashMap<>();
     private final List<String> options = new ArrayList<>();
     private Integer messageIdWithPoll = null;
 
-    // -------------------- BOT CONFIG --------------------
     @Override
     public String getBotUsername() {
-        return "PavlogradVoteBot"; // username бота без @
+        return "PavlogradVoteBot";
     }
 
     @Override
     public String getBotToken() {
-        return "8529535908:AAGghyNIcLwiHhJ4XKSSeDGeS5mPK9sIp4M"; // токен бота
+        return "8529535908:AAGghyNIcLwiHhJ4XKSSeDGeS5mPK9sIp4M";
     }
-    // -----------------------------------------------------
 
     @Override
     public void onUpdateReceived(Update update) {
@@ -52,7 +48,6 @@ public class VoteBot extends TelegramLongPollingBot {
             Long userId = update.getMessage().getFrom().getId();
 
             if (text.startsWith("/startpoll")) {
-
                 if (!ADMIN_IDS.contains(userId)) {
                     sendMessage(chatId, "Тільки адміністратори можуть запускати опитування.");
                     return;
@@ -71,8 +66,8 @@ public class VoteBot extends TelegramLongPollingBot {
                 }
 
                 votes.clear();
-                sendVoteButtons(GROUP_CHAT_ID); // публікуємо у групу
-                sendMessage(chatId, "Опитування запущено ✅ (результати в групі)");
+                sendOrUpdatePollMessage(GROUP_CHAT_ID);
+                sendMessage(chatId, "Опитування запущено ✅ (результати оновлюються у групі)");
             }
         }
 
@@ -83,70 +78,94 @@ public class VoteBot extends TelegramLongPollingBot {
             String data = update.getCallbackQuery().getData();
 
             if (votes.containsKey(userId)) {
-                sendMessage(chatId, "Ви вже проголосували ✅");
+                // відповідаємо як "попап" без спаму
+                try {
+                    execute(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.builder()
+                            .callbackQueryId(update.getCallbackQuery().getId())
+                            .text("Ви вже проголосували ✅")
+                            .showAlert(false)
+                            .build());
+                } catch (TelegramApiException e) {
+                    e.printStackTrace();
+                }
                 return;
             }
 
             votes.put(userId, data);
-            sendMessage(chatId, "Ваш голос прийнято: " + data);
+
+            // відповідаємо попапом
+            try {
+                execute(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.builder()
+                        .callbackQueryId(update.getCallbackQuery().getId())
+                        .text("Ваш голос прийнято: " + data)
+                        .showAlert(false)
+                        .build());
+            } catch (TelegramApiException e) {
+                e.printStackTrace();
+            }
         }
     }
 
-    // Створення кнопок голосування
-    private void sendVoteButtons(String chatId) {
+    private void sendOrUpdatePollMessage(String chatId) {
+        StringBuilder sb = new StringBuilder("Голосування:\n");
+        for (String option : options) {
+            sb.append(option).append(": ").append(votes.values().stream().filter(v -> v.equals(option)).count())
+                    .append(" голосів\n");
+        }
+
+        // клавіатура
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (String option : options) {
             InlineKeyboardButton button = new InlineKeyboardButton();
             button.setText(option);
             button.setCallbackData(option);
-            rows.add(Collections.singletonList(button)); // вертикально
+            rows.add(Collections.singletonList(button));
         }
-
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
 
-        SendMessage message = new SendMessage(chatId, "Оберіть варіант:");
-        message.setReplyMarkup(markup);
-
         try {
-            var sentMessage = execute(message);
-            messageIdWithPoll = sentMessage.getMessageId();
+            if (messageIdWithPoll == null) {
+                // відправляємо нове повідомлення
+                var sentMessage = execute(SendMessage.builder()
+                        .chatId(chatId)
+                        .text(sb.toString())
+                        .replyMarkup(markup)
+                        .build());
+                messageIdWithPoll = sentMessage.getMessageId();
+            } else {
+                // редагуємо існуюче
+                EditMessageText edit = new EditMessageText();
+                edit.setChatId(chatId);
+                edit.setMessageId(messageIdWithPoll);
+                edit.setText(sb.toString());
+                edit.setReplyMarkup(markup);
+                execute(edit);
+            }
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
     }
 
-    // Оновлення результатів
-    private void updateResults() {
-        Map<String, Integer> counts = new HashMap<>();
-        for (String vote : votes.values()) {
-            counts.put(vote, counts.getOrDefault(vote, 0) + 1);
+    // Авто-оновлення кожні 30 секунд
+    private void updatePoll() {
+        if (messageIdWithPoll != null) {
+            sendOrUpdatePollMessage(GROUP_CHAT_ID);
         }
-
-        StringBuilder sb = new StringBuilder("Результати голосування:\n");
-        for (String option : options) {
-            sb.append(option).append(": ").append(counts.getOrDefault(option, 0)).append(" голосів\n");
-        }
-
-        sendMessage(GROUP_CHAT_ID, sb.toString()); // просто нове повідомлення
     }
 
-
-    // Відправка простого повідомлення
     private void sendMessage(String chatId, String text) {
         try {
             execute(new SendMessage(chatId, text));
         } catch (TelegramApiException ignored) {}
     }
 
-    // -------------------- MAIN --------------------
     public static void main(String[] args) throws Exception {
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         VoteBot bot = new VoteBot();
         botsApi.registerBot(bot);
 
-        // Авто-оновлення результатів кожні 30 секунд
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleAtFixedRate(bot::updateResults, 30, 30, TimeUnit.SECONDS);
+        executor.scheduleAtFixedRate(bot::updatePoll, 5, 5, TimeUnit.SECONDS);
     }
 }
