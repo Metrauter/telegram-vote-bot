@@ -2,9 +2,13 @@ package com.example;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMember;
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberAdministrator;
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberOwner;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -18,7 +22,6 @@ import java.util.concurrent.TimeUnit;
 public class VoteBot extends TelegramLongPollingBot {
 
     private static final String GROUP_CHAT_ID = "-1003860160178";
-
     private static final Set<Long> ADMIN_IDS = Set.of(
             875558201L,
             636575553L
@@ -74,14 +77,28 @@ public class VoteBot extends TelegramLongPollingBot {
         // --- Голоси через кнопки ---
         if (update.hasCallbackQuery()) {
             Long userId = update.getCallbackQuery().getFrom().getId();
-            String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
+            String callbackId = update.getCallbackQuery().getId();
             String data = update.getCallbackQuery().getData();
+            String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
 
-            if (votes.containsKey(userId)) {
-                // відповідаємо як "попап" без спаму
+            // Перевірка підписки на канал
+            if (!isUserSubscribed(userId)) {
                 try {
                     execute(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.builder()
-                            .callbackQueryId(update.getCallbackQuery().getId())
+                            .callbackQueryId(callbackId)
+                            .text("Ви не підписані на канал! Підпишіться, щоб голосувати.")
+                            .showAlert(true)
+                            .build());
+                } catch (TelegramApiException e) {
+                    e.printStackTrace();
+                }
+                return;
+            }
+
+            if (votes.containsKey(userId)) {
+                try {
+                    execute(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.builder()
+                            .callbackQueryId(callbackId)
                             .text("Ви вже проголосували ✅")
                             .showAlert(false)
                             .build());
@@ -93,10 +110,9 @@ public class VoteBot extends TelegramLongPollingBot {
 
             votes.put(userId, data);
 
-            // відповідаємо попапом
             try {
                 execute(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.builder()
-                        .callbackQueryId(update.getCallbackQuery().getId())
+                        .callbackQueryId(callbackId)
                         .text("Ваш голос прийнято: " + data)
                         .showAlert(false)
                         .build());
@@ -106,6 +122,20 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    // --- Перевірка підписки користувача ---
+    private boolean isUserSubscribed(Long userId) {
+        try {
+            GetChatMember getChatMember = new GetChatMember(GROUP_CHAT_ID, userId);
+            ChatMember member = execute(getChatMember);
+            // статус "member", "administrator", "creator" — всі вважаються підписниками
+            return member instanceof ChatMemberAdministrator || member instanceof ChatMemberOwner ||
+                    "member".equals(member.getStatus()) || "creator".equals(member.getStatus());
+        } catch (TelegramApiException e) {
+            return false;
+        }
+    }
+
+    // --- Відправка або оновлення одного повідомлення ---
     private void sendOrUpdatePollMessage(String chatId) {
         StringBuilder sb = new StringBuilder("Голосування:\n");
         for (String option : options) {
@@ -113,7 +143,6 @@ public class VoteBot extends TelegramLongPollingBot {
                     .append(" голосів\n");
         }
 
-        // клавіатура
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (String option : options) {
             InlineKeyboardButton button = new InlineKeyboardButton();
@@ -121,12 +150,12 @@ public class VoteBot extends TelegramLongPollingBot {
             button.setCallbackData(option);
             rows.add(Collections.singletonList(button));
         }
+
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
 
         try {
             if (messageIdWithPoll == null) {
-                // відправляємо нове повідомлення
                 var sentMessage = execute(SendMessage.builder()
                         .chatId(chatId)
                         .text(sb.toString())
@@ -134,7 +163,6 @@ public class VoteBot extends TelegramLongPollingBot {
                         .build());
                 messageIdWithPoll = sentMessage.getMessageId();
             } else {
-                // редагуємо існуюче
                 EditMessageText edit = new EditMessageText();
                 edit.setChatId(chatId);
                 edit.setMessageId(messageIdWithPoll);
@@ -147,7 +175,6 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
-    // Авто-оновлення кожні 30 секунд
     private void updatePoll() {
         if (messageIdWithPoll != null) {
             sendOrUpdatePollMessage(GROUP_CHAT_ID);
