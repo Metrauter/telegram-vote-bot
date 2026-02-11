@@ -37,6 +37,34 @@ public class VoteBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
 
+        // Обробка повідомлень (команд)
+        if (update.hasMessage() && update.getMessage().hasText()) {
+            String chatId = update.getMessage().getChatId().toString();
+            String text = update.getMessage().getText();
+
+            // Команда для старту нового опитування
+            if (text.startsWith("/startpoll")) {
+                // формат: /startpoll Команда A;Команда B;Команда C
+                String[] parts = text.split(" ", 2);
+                if (parts.length < 2) {
+                    sendMessage(chatId, "Вкажіть варіанти через крапку з комою, наприклад:\n" +
+                            "/startpoll Команда A;Команда B;Команда C");
+                    return;
+                }
+
+                String[] newOptions = parts[1].split(";");
+                options.clear();
+                for (String option : newOptions) {
+                    options.add(option.trim());
+                }
+
+                votes.clear(); // чистимо попередні голоси
+                sendVoteButtons(GROUP_ID); // публікуємо голосування у групі
+                sendMessage(chatId, "Опитування запущено ✅");
+            }
+        }
+
+        // Обробка натискань кнопок
         if (update.hasCallbackQuery()) {
             Long userId = update.getCallbackQuery().getFrom().getId();
             String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
@@ -56,6 +84,7 @@ public class VoteBot extends TelegramLongPollingBot {
             sendMessage(chatId, "Ваш голос прийнято: " + data);
         }
     }
+
 
     private boolean isUserSubscribed(Long userId) {
         try {
