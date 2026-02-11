@@ -20,35 +20,41 @@ import java.util.concurrent.TimeUnit;
 
 public class VoteBot extends TelegramLongPollingBot {
 
-    // ⚠ Обов'язково заміни на числовий chatId твоєї групи
-    private static final String GROUP_CHAT_ID = "123456789";
+    // ⚠ Заміни на числовий chatId твоєї групи
+    private static final String GROUP_CHAT_ID = "636575553";
+
     private final Map<Long, String> votes = new HashMap<>();
     private final List<String> options = new ArrayList<>();
     private Integer messageIdWithPoll = null;
 
+    // -------------------- BOT CONFIG --------------------
     @Override
     public String getBotUsername() {
-        return System.getenv("PavlogradVoteBot");
+        return "PavlogradVoteBot"; // username бота без @
     }
 
     @Override
     public String getBotToken() {
-        return System.getenv("8529535908:AAGghyNIcLwiHhJ4XKSSeDGeS5mPK9sIp4M");
+        return "8529535908:AAGghyNIcLwiHhJ4XKSSeDGeS5mPK9sIp4M"; // токен бота
     }
+    // -----------------------------------------------------
 
     @Override
     public void onUpdateReceived(Update update) {
 
+        // Виводимо ChatId для дебагу
         if (update.hasMessage()) {
             System.out.println("ChatId: " + update.getMessage().getChatId());
         }
-        // Команди у приваті
+
+        // --- Команди ---
         if (update.hasMessage() && update.getMessage().hasText()) {
             String chatId = update.getMessage().getChatId().toString();
             String text = update.getMessage().getText();
             Long userId = update.getMessage().getFrom().getId();
 
             if (text.startsWith("/startpoll")) {
+
                 if (!isUserAdmin(userId)) {
                     sendMessage(chatId, "Тільки адміністратори можуть запускати опитування.");
                     return;
@@ -56,7 +62,8 @@ public class VoteBot extends TelegramLongPollingBot {
 
                 String[] parts = text.split(" ", 2);
                 if (parts.length < 2) {
-                    sendMessage(chatId, "Вкажіть варіанти через крапку з комою:\n/startpoll Варіант1;Варіант2;Варіант3");
+                    sendMessage(chatId,
+                            "Вкажіть варіанти через крапку з комою:\n/startpoll Варіант1;Варіант2;Варіант3");
                     return;
                 }
 
@@ -66,12 +73,12 @@ public class VoteBot extends TelegramLongPollingBot {
                 }
 
                 votes.clear();
-                sendVoteButtons(GROUP_CHAT_ID); // публікація у групу
+                sendVoteButtons(GROUP_CHAT_ID); // публікуємо у групу
                 sendMessage(chatId, "Опитування запущено ✅ (результати в групі)");
             }
         }
 
-        // Голоси через кнопки
+        // --- Голоси через кнопки ---
         if (update.hasCallbackQuery()) {
             Long userId = update.getCallbackQuery().getFrom().getId();
             String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
@@ -92,6 +99,7 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    // Перевірка підписки користувача
     private boolean isUserSubscribed(Long userId) {
         try {
             GetChatMember getChatMember = new GetChatMember(GROUP_CHAT_ID, userId);
@@ -103,6 +111,7 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    // Перевірка адміністратора
     private boolean isUserAdmin(Long userId) {
         try {
             GetChatMember getChatMember = new GetChatMember(GROUP_CHAT_ID, userId);
@@ -113,6 +122,7 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    // Створення кнопок голосування
     private void sendVoteButtons(String chatId) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         for (String option : options) {
@@ -136,6 +146,7 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    // Оновлення результатів
     private void updateResults() {
         if (messageIdWithPoll == null) return;
 
@@ -161,12 +172,14 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
+    // Відправка простого повідомлення
     private void sendMessage(String chatId, String text) {
         try {
             execute(new SendMessage(chatId, text));
         } catch (TelegramApiException ignored) {}
     }
 
+    // -------------------- MAIN --------------------
     public static void main(String[] args) throws Exception {
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
         VoteBot bot = new VoteBot();
