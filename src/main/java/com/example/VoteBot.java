@@ -5,8 +5,9 @@ import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
-import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMember;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberAdministrator;
+import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberOwner;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -37,15 +38,14 @@ public class VoteBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
 
+        // Команди
         if (update.hasMessage() && update.getMessage().hasText()) {
             String chatId = update.getMessage().getChatId().toString();
             String text = update.getMessage().getText();
             Long userId = update.getMessage().getFrom().getId();
 
-            // Команда для запуску нового опитування
             if (text.startsWith("/startpoll")) {
 
-                // Перевірка: чи користувач адміністратор
                 if (!isUserAdmin(userId)) {
                     sendMessage(chatId, "Тільки адміністратори можуть запускати опитування.");
                     return;
@@ -69,7 +69,7 @@ public class VoteBot extends TelegramLongPollingBot {
             }
         }
 
-        // Обробка голосів через кнопки
+        // Голоси
         if (update.hasCallbackQuery()) {
             Long userId = update.getCallbackQuery().getFrom().getId();
             String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
@@ -92,12 +92,10 @@ public class VoteBot extends TelegramLongPollingBot {
 
     private boolean isUserSubscribed(Long userId) {
         try {
-            GetChatMember getChatMember = new GetChatMember();
-            getChatMember.setChatId(GROUP_ID);
-            getChatMember.setUserId(userId);
-
-            String status = execute(getChatMember).getStatus();
-            return status.equals("member") || status.equals("administrator") || status.equals("creator");
+            GetChatMember getChatMember = new GetChatMember(GROUP_ID, userId);
+            var member = execute(getChatMember); // use var, щоб IDE не ругалася
+            return member instanceof ChatMemberAdministrator || member instanceof ChatMemberOwner ||
+                    "member".equals(member.getStatus());
         } catch (TelegramApiException e) {
             return false;
         }
@@ -105,9 +103,9 @@ public class VoteBot extends TelegramLongPollingBot {
 
     private boolean isUserAdmin(Long userId) {
         try {
-            ChatMember member = execute(new GetChatMember(GROUP_ID, userId));
-            String status = member.getStatus();
-            return status.equals("administrator") || status.equals("creator");
+            GetChatMember getChatMember = new GetChatMember(GROUP_ID, userId);
+            var member = execute(getChatMember);
+            return member instanceof ChatMemberAdministrator || member instanceof ChatMemberOwner;
         } catch (TelegramApiException e) {
             return false;
         }
@@ -125,7 +123,7 @@ public class VoteBot extends TelegramLongPollingBot {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
 
-        SendMessage message = new SendMessage(chatId, "Оберіть команду:");
+        SendMessage message = new SendMessage(chatId, "Оберіть варіант:");
         message.setReplyMarkup(markup);
 
         try {
@@ -172,7 +170,6 @@ public class VoteBot extends TelegramLongPollingBot {
         VoteBot bot = new VoteBot();
         botsApi.registerBot(bot);
 
-        // Авто-оновлення результатів кожні 30 секунд
         ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
         executor.scheduleAtFixedRate(bot::updateResults, 30, 30, TimeUnit.SECONDS);
     }
