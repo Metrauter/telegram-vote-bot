@@ -28,12 +28,12 @@ public class VoteBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotUsername() {
-        return System.getenv("PAVLOGRAD_BOT_USERNAME");
+        return System.getenv("PavlogradVoteBot");
     }
 
     @Override
     public String getBotToken() {
-        return System.getenv("PAVLOGRAD_BOT_TOKEN");
+        return System.getenv("8529535908:AAGghyNIcLwiHhJ4XKSSeDGeS5mPK9sIp4M");
     }
 
     @Override
