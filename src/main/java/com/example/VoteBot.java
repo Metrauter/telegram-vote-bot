@@ -2,12 +2,9 @@ package com.example;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
-import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.Update;
-import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberAdministrator;
-import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberOwner;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -22,6 +19,12 @@ public class VoteBot extends TelegramLongPollingBot {
 
     // ⚠ Заміни на числовий chatId твоєї групи
     private static final String GROUP_CHAT_ID = "636575553";
+
+    // Список userId адміністраторів, які можуть запускати опитування
+    private static final Set<Long> ADMIN_IDS = Set.of(
+            875558201L,  // твій ID
+            636575553L   // інший адміністратор
+    );
 
     private final Map<Long, String> votes = new HashMap<>();
     private final List<String> options = new ArrayList<>();
@@ -42,12 +45,7 @@ public class VoteBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
 
-        // Виводимо ChatId для дебагу
-        if (update.hasMessage()) {
-            System.out.println("ChatId: " + update.getMessage().getChatId());
-        }
-
-        // --- Команди ---
+        // --- Команди у приваті ---
         if (update.hasMessage() && update.getMessage().hasText()) {
             String chatId = update.getMessage().getChatId().toString();
             String text = update.getMessage().getText();
@@ -55,7 +53,7 @@ public class VoteBot extends TelegramLongPollingBot {
 
             if (text.startsWith("/startpoll")) {
 
-                if (!isUserAdmin(userId)) {
+                if (!ADMIN_IDS.contains(userId)) {
                     sendMessage(chatId, "Тільки адміністратори можуть запускати опитування.");
                     return;
                 }
@@ -84,11 +82,6 @@ public class VoteBot extends TelegramLongPollingBot {
             String chatId = update.getCallbackQuery().getMessage().getChatId().toString();
             String data = update.getCallbackQuery().getData();
 
-            if (!isUserSubscribed(userId)) {
-                sendMessage(chatId, "Ви не підписані на канал!");
-                return;
-            }
-
             if (votes.containsKey(userId)) {
                 sendMessage(chatId, "Ви вже проголосували ✅");
                 return;
@@ -96,29 +89,6 @@ public class VoteBot extends TelegramLongPollingBot {
 
             votes.put(userId, data);
             sendMessage(chatId, "Ваш голос прийнято: " + data);
-        }
-    }
-
-    // Перевірка підписки користувача
-    private boolean isUserSubscribed(Long userId) {
-        try {
-            GetChatMember getChatMember = new GetChatMember(GROUP_CHAT_ID, userId);
-            var member = execute(getChatMember);
-            return member instanceof ChatMemberAdministrator || member instanceof ChatMemberOwner ||
-                    "member".equals(member.getStatus());
-        } catch (TelegramApiException e) {
-            return false;
-        }
-    }
-
-    // Перевірка адміністратора
-    private boolean isUserAdmin(Long userId) {
-        try {
-            GetChatMember getChatMember = new GetChatMember(GROUP_CHAT_ID, userId);
-            var member = execute(getChatMember);
-            return member instanceof ChatMemberAdministrator || member instanceof ChatMemberOwner;
-        } catch (TelegramApiException e) {
-            return false;
         }
     }
 
