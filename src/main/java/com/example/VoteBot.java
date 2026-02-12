@@ -19,7 +19,8 @@ import java.util.concurrent.TimeUnit;
 
 public class VoteBot extends TelegramLongPollingBot {
 
-    private static final String GROUP_CHAT_ID = "-1003860160178";
+    private static final String GROUP_CHAT_ID = "-1003467071058";
+//            "-1003860160178"; Test Group
 
     private static final Set<Long> ADMIN_IDS = Set.of(
             875558201L,
@@ -170,7 +171,7 @@ public class VoteBot extends TelegramLongPollingBot {
 
         if (!pollActive) return;
 
-        StringBuilder sb = new StringBuilder("📊 Голосування\n\n");
+        StringBuilder sb = new StringBuilder("📊 Кращий гравець січня\n\n");
 
         for (String option : options) {
             long count = votes.values().stream()
