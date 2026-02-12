@@ -2,6 +2,7 @@ package com.example;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
@@ -13,25 +14,23 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class VoteBot extends TelegramLongPollingBot {
 
     private static final String GROUP_CHAT_ID = "-1003467071058";
-//            "-1003860160178"; Test Group
 
     private static final Set<Long> ADMIN_IDS = Set.of(
             875558201L,
             636575553L
     );
 
-    private final Map<Long, String> votes = new HashMap<>();
-    private final List<String> options = new ArrayList<>();
+    // userId -> optionIndex
+    private final Map<Long, Integer> votes = new ConcurrentHashMap<>();
+    private final List<String> options = Collections.synchronizedList(new ArrayList<>());
 
-    private Integer messageIdWithPoll = null;
-    private boolean pollActive = false;
+    private volatile Integer pollMessageId = null;
+    private volatile boolean pollActive = false;
 
     @Override
     public String getBotUsername() {
@@ -40,223 +39,248 @@ public class VoteBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotToken() {
-        return "8529535908:AAGXGC14Nodj8Kx1hlTT7FNi7-MManOsE3I";
+        String token = System.getenv("BOT_TOKEN");
+        if (token == null || token.isBlank()) {
+            throw new RuntimeException("BOT_TOKEN is not set!");
+        }
+        return token;
     }
 
     @Override
     public void onUpdateReceived(Update update) {
 
-        // --- Команди ---
         if (update.hasMessage() && update.getMessage().hasText()) {
-            String chatId = update.getMessage().getChatId().toString();
-            String text = update.getMessage().getText();
-            Long userId = update.getMessage().getFrom().getId();
+            handleMessage(update);
+        }
 
-            // --- START POLL ---
-            if (text.startsWith("/startpoll")) {
+        if (update.hasCallbackQuery()) {
+            handleCallback(update);
+        }
+    }
 
-                if (!ADMIN_IDS.contains(userId)) {
-                    sendMessage(chatId, "Тільки адміністратори можуть запускати опитування.");
-                    return;
-                }
+    private void handleMessage(Update update) {
 
-                String[] parts = text.split(" ", 2);
-                if (parts.length < 2) {
-                    sendMessage(chatId,
-                            "Вкажіть варіанти через ;\n/startpoll Варіант1;Варіант2;Варіант3");
-                    return;
-                }
+        String text = update.getMessage().getText();
+        String chatId = update.getMessage().getChatId().toString();
+        Long userId = update.getMessage().getFrom().getId();
 
+        if (text.startsWith("/startpoll")) {
+
+            if (!ADMIN_IDS.contains(userId)) {
+                send(chatId, "❌ Тільки адміністратори можуть запускати голосування.");
+                return;
+            }
+
+            String[] parts = text.split(" ", 2);
+            if (parts.length < 2) {
+                send(chatId, "Формат:\n/startpoll Варіант1;Варіант2;Варіант3");
+                return;
+            }
+
+            String[] rawOptions = parts[1].split(";");
+            if (rawOptions.length < 2) {
+                send(chatId, "Потрібно мінімум 2 варіанти.");
+                return;
+            }
+
+            synchronized (options) {
                 options.clear();
-                for (String option : parts[1].split(";")) {
+                for (String option : rawOptions) {
                     options.add(option.trim());
                 }
-
-                votes.clear();
-                pollActive = true;
-                messageIdWithPoll = null;
-
-                sendOrUpdatePollMessage(GROUP_CHAT_ID);
-                sendMessage(chatId, "Опитування запущено ✅");
             }
 
-            // --- STOP POLL ---
-            if (text.equals("/stoppoll")) {
+            votes.clear();
+            pollActive = true;
+            pollMessageId = null;
 
-                if (!ADMIN_IDS.contains(userId)) {
-                    sendMessage(chatId, "Тільки адміністратори можуть зупиняти опитування.");
-                    return;
-                }
-
-                if (!pollActive) {
-                    sendMessage(chatId, "Немає активного голосування.");
-                    return;
-                }
-
-                pollActive = false;
-                stopPoll();
-                sendMessage(chatId, "Голосування завершено ✅");
-            }
+            renderPoll();
+            send(chatId, "✅ Голосування запущено!");
         }
 
-        // --- CALLBACK (ГОЛОСИ) ---
-        if (update.hasCallbackQuery()) {
+        if (text.equals("/stoppoll")) {
 
-            Long userId = update.getCallbackQuery().getFrom().getId();
-            String callbackId = update.getCallbackQuery().getId();
-            String data = update.getCallbackQuery().getData();
+            if (!ADMIN_IDS.contains(userId)) {
+                send(chatId, "❌ Тільки адміністратори можуть зупиняти голосування.");
+                return;
+            }
 
             if (!pollActive) {
-                answer(callbackId, "Голосування завершено.", false);
+                send(chatId, "Немає активного голосування.");
                 return;
             }
 
-            if (!isUserSubscribed(userId)) {
-                votes.remove(userId);
-                sendOrUpdatePollMessage(GROUP_CHAT_ID);
-                answer(callbackId, "Ви не підписані. Голос скасовано.", true);
-                return;
-            }
-
-            if (votes.containsKey(userId)) {
-                answer(callbackId, "Ви вже проголосували ✅", false);
-                return;
-            }
-
-            votes.put(userId, data);
-            sendOrUpdatePollMessage(GROUP_CHAT_ID);
-            answer(callbackId, "Ваш голос прийнято: " + data, false);
+            pollActive = false;
+            renderFinalResults();
+            send(chatId, "🏁 Голосування завершено!");
         }
     }
 
-    // --- Завершення голосування ---
-    private void stopPoll() {
+    private void handleCallback(Update update) {
 
-        if (messageIdWithPoll == null) return;
+        Long userId = update.getCallbackQuery().getFrom().getId();
+        String callbackId = update.getCallbackQuery().getId();
+        String data = update.getCallbackQuery().getData();
 
-        StringBuilder sb = new StringBuilder("🏁 Голосування завершено\n\n");
-
-        for (String option : options) {
-            long count = votes.values().stream()
-                    .filter(v -> v.equals(option))
-                    .count();
-            sb.append(option).append(": ").append(count).append(" голосів\n");
+        if (!pollActive) {
+            answer(callbackId, "Голосування завершено.", false);
+            return;
         }
 
-        EditMessageText edit = new EditMessageText();
-        edit.setChatId(GROUP_CHAT_ID);
-        edit.setMessageId(messageIdWithPoll);
-        edit.setText(sb.toString());
-
-        try {
-            execute(edit); // без кнопок
-        } catch (TelegramApiException e) {
-            e.printStackTrace();
+        if (!data.startsWith("vote_")) {
+            answer(callbackId, "Помилка.", false);
+            return;
         }
+
+        if (!isUserSubscribed(userId)) {
+            votes.remove(userId);
+            renderPoll();
+            answer(callbackId, "Ви не підписані на групу.", true);
+            return;
+        }
+
+        if (votes.containsKey(userId)) {
+            answer(callbackId, "Ви вже проголосували ✅", false);
+            return;
+        }
+
+        int optionIndex = Integer.parseInt(data.substring(5));
+
+        if (optionIndex < 0 || optionIndex >= options.size()) {
+            answer(callbackId, "Невірний вибір.", false);
+            return;
+        }
+
+        votes.put(userId, optionIndex);
+
+        renderPoll();
+        answer(callbackId, "Ваш голос прийнято ✅", false);
     }
 
-    // --- Перевірка підписки ---
-    private boolean isUserSubscribed(Long userId) {
-        try {
-            GetChatMember getChatMember = new GetChatMember(GROUP_CHAT_ID, userId);
-            ChatMember member = execute(getChatMember);
-            return !"left".equals(member.getStatus());
-        } catch (TelegramApiException e) {
-            return false;
-        }
-    }
-
-    // --- Відправка/оновлення ---
-    private void sendOrUpdatePollMessage(String chatId) {
+    private void renderPoll() {
 
         if (!pollActive) return;
 
-        StringBuilder sb = new StringBuilder("📊 Кращий гравець січня\n\n");
+        StringBuilder text = new StringBuilder("📊 Кращий гравець січня\n\n");
 
-        for (String option : options) {
-            long count = votes.values().stream()
-                    .filter(v -> v.equals(option))
-                    .count();
-            sb.append(option).append(": ").append(count).append(" голосів\n");
+        Map<Integer, Integer> counts = countVotes();
+
+        synchronized (options) {
+            for (int i = 0; i < options.size(); i++) {
+                int count = counts.getOrDefault(i, 0);
+                text.append(options.get(i))
+                        .append(": ")
+                        .append(count)
+                        .append(" голосів\n");
+            }
         }
 
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (String option : options) {
-            InlineKeyboardButton button = new InlineKeyboardButton();
-            button.setText(option);
-            button.setCallbackData(option);
-            rows.add(Collections.singletonList(button));
-        }
-
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        markup.setKeyboard(rows);
+        InlineKeyboardMarkup markup = buildKeyboard();
 
         try {
-            if (messageIdWithPoll == null) {
-                var sentMessage = execute(SendMessage.builder()
-                        .chatId(chatId)
-                        .text(sb.toString())
+            if (pollMessageId == null) {
+                var sent = execute(SendMessage.builder()
+                        .chatId(GROUP_CHAT_ID)
+                        .text(text.toString())
                         .replyMarkup(markup)
                         .build());
-                messageIdWithPoll = sentMessage.getMessageId();
+
+                pollMessageId = sent.getMessageId();
             } else {
-                EditMessageText edit = new EditMessageText();
-                edit.setChatId(chatId);
-                edit.setMessageId(messageIdWithPoll);
-                edit.setText(sb.toString());
-                edit.setReplyMarkup(markup);
-                execute(edit);
+                execute(EditMessageText.builder()
+                        .chatId(GROUP_CHAT_ID)
+                        .messageId(pollMessageId)
+                        .text(text.toString())
+                        .replyMarkup(markup)
+                        .build());
             }
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
     }
 
-    private void answer(String callbackId, String text, boolean alert) {
+    private void renderFinalResults() {
+
+        if (pollMessageId == null) return;
+
+        StringBuilder text = new StringBuilder("🏁 Голосування завершено\n\n");
+
+        Map<Integer, Integer> counts = countVotes();
+
+        synchronized (options) {
+            for (int i = 0; i < options.size(); i++) {
+                int count = counts.getOrDefault(i, 0);
+                text.append(options.get(i))
+                        .append(": ")
+                        .append(count)
+                        .append(" голосів\n");
+            }
+        }
+
         try {
-            execute(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.builder()
-                    .callbackQueryId(callbackId)
-                    .text(text)
-                    .showAlert(alert)
+            execute(EditMessageText.builder()
+                    .chatId(GROUP_CHAT_ID)
+                    .messageId(pollMessageId)
+                    .text(text.toString())
                     .build());
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
     }
 
-    private void sendMessage(String chatId, String text) {
+    private Map<Integer, Integer> countVotes() {
+        Map<Integer, Integer> counts = new HashMap<>();
+        for (Integer index : votes.values()) {
+            counts.merge(index, 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    private InlineKeyboardMarkup buildKeyboard() {
+
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        synchronized (options) {
+            for (int i = 0; i < options.size(); i++) {
+                InlineKeyboardButton button = new InlineKeyboardButton();
+                button.setText(options.get(i));
+                button.setCallbackData("vote_" + i);
+                rows.add(Collections.singletonList(button));
+            }
+        }
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    private boolean isUserSubscribed(Long userId) {
+        try {
+            ChatMember member = execute(new GetChatMember(GROUP_CHAT_ID, userId));
+            return !"left".equals(member.getStatus());
+        } catch (TelegramApiException e) {
+            return false;
+        }
+    }
+
+    private void answer(String callbackId, String text, boolean alert) {
+        try {
+            execute(AnswerCallbackQuery.builder()
+                    .callbackQueryId(callbackId)
+                    .text(text)
+                    .showAlert(alert)
+                    .build());
+        } catch (TelegramApiException ignored) {}
+    }
+
+    private void send(String chatId, String text) {
         try {
             execute(new SendMessage(chatId, text));
         } catch (TelegramApiException ignored) {}
     }
 
-    // --- Авто перевірка відписок ---
-    private void updatePoll() {
-
-        if (!pollActive) return;
-
-        List<Long> toRemove = new ArrayList<>();
-
-        for (Long userId : votes.keySet()) {
-            if (!isUserSubscribed(userId)) {
-                toRemove.add(userId);
-            }
-        }
-
-        for (Long id : toRemove) votes.remove(id);
-
-        if (!toRemove.isEmpty()) {
-            sendOrUpdatePollMessage(GROUP_CHAT_ID);
-        }
-    }
-
     public static void main(String[] args) throws Exception {
-
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
-        VoteBot bot = new VoteBot();
-        botsApi.registerBot(bot);
-
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-        executor.scheduleAtFixedRate(bot::updatePoll, 10, 10, TimeUnit.SECONDS);
+        botsApi.registerBot(new VoteBot());
     }
 }
