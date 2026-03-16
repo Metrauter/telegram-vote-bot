@@ -208,7 +208,7 @@ public class VoteBot extends TelegramLongPollingBot {
     private String formatOption(String option) {
         String[] parts = option.split(" ", 3); // ім'я, прізвище, команда
         if (parts.length < 3) return option;   // якщо формат не стандартний, залишаємо як є
-        return parts[0] + " " + parts[1] + "\n🏟 " + parts[2];
+        return parts[0] + " " + parts[1] + "\n⚽ " + parts[2];
     }
 
     private void renderFinalResults() {
