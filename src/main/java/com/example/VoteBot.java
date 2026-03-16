@@ -161,7 +161,7 @@ public class VoteBot extends TelegramLongPollingBot {
 
         if (!pollActive) return;
 
-        StringBuilder text = new StringBuilder("📊 Кращий гравець січня\n\n");
+        StringBuilder text = new StringBuilder("📊 Кращий гравець лютого\n\n");
 
         Map<Integer, Integer> counts = countVotes();
 
