@@ -158,30 +158,22 @@ public class VoteBot extends TelegramLongPollingBot {
     }
 
     private void renderPoll() {
-
         if (!pollActive) return;
 
-        StringBuilder text = new StringBuilder("📊 <b>Кращий гравець лютого</b>\n\n");
+        StringBuilder text = new StringBuilder("📊 Кращий гравець лютого\n\n");
 
         Map<Integer, Integer> counts = countVotes();
 
         synchronized (options) {
             for (int i = 0; i < options.size(); i++) {
-
                 int count = counts.getOrDefault(i, 0);
+
+                // Розділяємо ім'я, прізвище та команду
                 String option = options.get(i);
+                String displayOption = formatOption(option);
 
-                String[] parts = option.split(" ", 3);
-
-                String firstName = parts.length > 0 ? parts[0] : "";
-                String lastName = parts.length > 1 ? parts[1] : "";
-                String team = parts.length > 2 ? parts[2] : "";
-
-                text.append("👤 ")
-                        .append(firstName).append(" ").append(lastName)
-                        .append("\n🏟 ")
-                        .append(team)
-                        .append(" — ")
+                text.append(displayOption)
+                        .append(": ")
                         .append(count)
                         .append(" голосів\n\n");
             }
@@ -191,81 +183,50 @@ public class VoteBot extends TelegramLongPollingBot {
 
         try {
             if (pollMessageId == null) {
-
                 var sent = execute(SendMessage.builder()
                         .chatId(GROUP_CHAT_ID)
                         .text(text.toString())
-                        .parseMode("HTML")
                         .replyMarkup(markup)
                         .build());
-
                 pollMessageId = sent.getMessageId();
-
             } else {
-
                 execute(EditMessageText.builder()
                         .chatId(GROUP_CHAT_ID)
                         .messageId(pollMessageId)
                         .text(text.toString())
-                        .parseMode("HTML")
                         .replyMarkup(markup)
                         .build());
             }
-
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
     }
 
-    private void renderFinalResults() {
+    // Додатковий метод для форматування варіанту
+    private String formatOption(String option) {
+        String[] parts = option.split(" ", 3); // ім'я, прізвище, команда
+        if (parts.length < 3) return option;   // якщо формат не стандартний, залишаємо як є
+        return parts[0] + " " + parts[1] + "\n🏟 " + parts[2];
+    }
 
+    private void renderFinalResults() {
         if (pollMessageId == null) return;
 
-        StringBuilder text = new StringBuilder("🏁 <b>Голосування завершено</b>\n\n");
+        StringBuilder text = new StringBuilder("🏁 Голосування завершено\n\n");
 
         Map<Integer, Integer> counts = countVotes();
 
-        List<Integer> order = new ArrayList<>();
-
         synchronized (options) {
             for (int i = 0; i < options.size(); i++) {
-                order.add(i);
+                int count = counts.getOrDefault(i, 0);
+                String option = options.get(i);
+                String displayOption = formatOption(option);
+
+                text.append(displayOption)
+                        .append(": ")
+                        .append(count)
+                        .append(" голосів\n\n");
             }
-        }
-
-        order.sort((a, b) ->
-                counts.getOrDefault(b, 0) - counts.getOrDefault(a, 0)
-        );
-
-        int place = 1;
-
-        for (Integer index : order) {
-
-            int count = counts.getOrDefault(index, 0);
-            String option = options.get(index);
-
-            String[] parts = option.split(" ", 3);
-
-            String firstName = parts.length > 0 ? parts[0] : "";
-            String lastName = parts.length > 1 ? parts[1] : "";
-            String team = parts.length > 2 ? parts[2] : "";
-
-            String medal;
-
-            if (place == 1) medal = "🥇";
-            else if (place == 2) medal = "🥈";
-            else if (place == 3) medal = "🥉";
-            else medal = place + "️⃣";
-
-            text.append(medal).append(" ")
-                    .append(firstName).append(" ").append(lastName)
-                    .append("\n🏟 ")
-                    .append(team)
-                    .append(" — ")
-                    .append(count)
-                    .append(" голосів\n\n");
-
-            place++;
         }
 
         try {
@@ -273,9 +234,7 @@ public class VoteBot extends TelegramLongPollingBot {
                     .chatId(GROUP_CHAT_ID)
                     .messageId(pollMessageId)
                     .text(text.toString())
-                    .parseMode("HTML")
                     .build());
-
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
