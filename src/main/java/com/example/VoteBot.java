@@ -166,19 +166,23 @@ public class VoteBot extends TelegramLongPollingBot {
 
         Map<Integer, Integer> counts = countVotes();
 
-        synchronized (options) {
-            for (int i = 0; i < options.size(); i++) {
-                int count = counts.getOrDefault(i, 0);
+        // Створюємо список пар (індекс варіанту, кількість голосів)
+        List<Map.Entry<Integer, Integer>> sorted = new ArrayList<>();
+        for (int i = 0; i < options.size(); i++) {
+            sorted.add(Map.entry(i, counts.getOrDefault(i, 0)));
+        }
 
-                // Розділяємо ім'я, прізвище та команду
-                String option = options.get(i);
-                String displayOption = formatOption(option);
+        // Сортуємо по спаданню голосів
+        sorted.sort((a, b) -> b.getValue().compareTo(a.getValue()));
 
-                text.append(displayOption)
-                        .append(": ")
-                        .append(count)
-                        .append(" голосів\n\n");
-            }
+        // Формуємо текст
+        for (Map.Entry<Integer, Integer> entry : sorted) {
+            int idx = entry.getKey();
+            int count = entry.getValue();
+            text.append(formatOption(options.get(idx)))
+                    .append(": ")
+                    .append(count)
+                    .append(" голосів\n");
         }
 
         InlineKeyboardMarkup markup = buildKeyboard();
@@ -190,6 +194,7 @@ public class VoteBot extends TelegramLongPollingBot {
                         .text(text.toString())
                         .replyMarkup(markup)
                         .build());
+
                 pollMessageId = sent.getMessageId();
             } else {
                 execute(EditMessageText.builder()
@@ -204,13 +209,6 @@ public class VoteBot extends TelegramLongPollingBot {
         }
     }
 
-    // Додатковий метод для форматування варіанту
-    private String formatOption(String option) {
-        String[] parts = option.split(" ", 3); // ім'я, прізвище, команда
-        if (parts.length < 3) return option;   // якщо формат не стандартний, залишаємо як є
-        return parts[0] + " " + parts[1] + "\n⚽ " + parts[2];
-    }
-
     private void renderFinalResults() {
         if (pollMessageId == null) return;
 
@@ -218,17 +216,23 @@ public class VoteBot extends TelegramLongPollingBot {
 
         Map<Integer, Integer> counts = countVotes();
 
-        synchronized (options) {
-            for (int i = 0; i < options.size(); i++) {
-                int count = counts.getOrDefault(i, 0);
-                String option = options.get(i);
-                String displayOption = formatOption(option);
+        // Створюємо список пар (індекс варіанту, кількість голосів)
+        List<Map.Entry<Integer, Integer>> sorted = new ArrayList<>();
+        for (int i = 0; i < options.size(); i++) {
+            sorted.add(Map.entry(i, counts.getOrDefault(i, 0)));
+        }
 
-                text.append(displayOption)
-                        .append(": ")
-                        .append(count)
-                        .append(" голосів\n\n");
-            }
+        // Сортуємо по спаданню голосів
+        sorted.sort((a, b) -> b.getValue().compareTo(a.getValue()));
+
+        // Формуємо текст
+        for (Map.Entry<Integer, Integer> entry : sorted) {
+            int idx = entry.getKey();
+            int count = entry.getValue();
+            text.append(formatOption(options.get(idx)))
+                    .append(": ")
+                    .append(count)
+                    .append(" голосів\n");
         }
 
         try {
@@ -240,6 +244,13 @@ public class VoteBot extends TelegramLongPollingBot {
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
+    }
+
+    // Форматування варіанту з нового рядка для команди
+    private String formatOption(String option) {
+        String[] parts = option.split(" ", 3); // Ім'я Прізвище Команда
+        if (parts.length < 3) return option;
+        return parts[0] + " " + parts[1] + "\n🏟 " + parts[2];
     }
 
     private Map<Integer, Integer> countVotes() {
