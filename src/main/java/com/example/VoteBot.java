@@ -161,17 +161,29 @@ public class VoteBot extends TelegramLongPollingBot {
 
         if (!pollActive) return;
 
-        StringBuilder text = new StringBuilder("📊 Кращий гравець лютого\n\n");
+        StringBuilder text = new StringBuilder("📊 <b>Кращий гравець лютого</b>\n\n");
 
         Map<Integer, Integer> counts = countVotes();
 
         synchronized (options) {
             for (int i = 0; i < options.size(); i++) {
+
                 int count = counts.getOrDefault(i, 0);
-                text.append(options.get(i))
-                        .append(": ")
+                String option = options.get(i);
+
+                String[] parts = option.split(" ", 3);
+
+                String firstName = parts.length > 0 ? parts[0] : "";
+                String lastName = parts.length > 1 ? parts[1] : "";
+                String team = parts.length > 2 ? parts[2] : "";
+
+                text.append("👤 ")
+                        .append(firstName).append(" ").append(lastName)
+                        .append("\n🏟 ")
+                        .append(team)
+                        .append(" — ")
                         .append(count)
-                        .append(" голосів\n");
+                        .append(" голосів\n\n");
             }
         }
 
@@ -179,21 +191,27 @@ public class VoteBot extends TelegramLongPollingBot {
 
         try {
             if (pollMessageId == null) {
+
                 var sent = execute(SendMessage.builder()
                         .chatId(GROUP_CHAT_ID)
                         .text(text.toString())
+                        .parseMode("HTML")
                         .replyMarkup(markup)
                         .build());
 
                 pollMessageId = sent.getMessageId();
+
             } else {
+
                 execute(EditMessageText.builder()
                         .chatId(GROUP_CHAT_ID)
                         .messageId(pollMessageId)
                         .text(text.toString())
+                        .parseMode("HTML")
                         .replyMarkup(markup)
                         .build());
             }
+
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
@@ -203,18 +221,51 @@ public class VoteBot extends TelegramLongPollingBot {
 
         if (pollMessageId == null) return;
 
-        StringBuilder text = new StringBuilder("🏁 Голосування завершено\n\n");
+        StringBuilder text = new StringBuilder("🏁 <b>Голосування завершено</b>\n\n");
 
         Map<Integer, Integer> counts = countVotes();
 
+        List<Integer> order = new ArrayList<>();
+
         synchronized (options) {
             for (int i = 0; i < options.size(); i++) {
-                int count = counts.getOrDefault(i, 0);
-                text.append(options.get(i))
-                        .append(": ")
-                        .append(count)
-                        .append(" голосів\n");
+                order.add(i);
             }
+        }
+
+        order.sort((a, b) ->
+                counts.getOrDefault(b, 0) - counts.getOrDefault(a, 0)
+        );
+
+        int place = 1;
+
+        for (Integer index : order) {
+
+            int count = counts.getOrDefault(index, 0);
+            String option = options.get(index);
+
+            String[] parts = option.split(" ", 3);
+
+            String firstName = parts.length > 0 ? parts[0] : "";
+            String lastName = parts.length > 1 ? parts[1] : "";
+            String team = parts.length > 2 ? parts[2] : "";
+
+            String medal;
+
+            if (place == 1) medal = "🥇";
+            else if (place == 2) medal = "🥈";
+            else if (place == 3) medal = "🥉";
+            else medal = place + "️⃣";
+
+            text.append(medal).append(" ")
+                    .append(firstName).append(" ").append(lastName)
+                    .append("\n🏟 ")
+                    .append(team)
+                    .append(" — ")
+                    .append(count)
+                    .append(" голосів\n\n");
+
+            place++;
         }
 
         try {
@@ -222,7 +273,9 @@ public class VoteBot extends TelegramLongPollingBot {
                     .chatId(GROUP_CHAT_ID)
                     .messageId(pollMessageId)
                     .text(text.toString())
+                    .parseMode("HTML")
                     .build());
+
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
