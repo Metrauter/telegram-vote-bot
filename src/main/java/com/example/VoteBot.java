@@ -182,7 +182,7 @@ public class VoteBot extends TelegramLongPollingBot {
             text.append(formatOption(options.get(idx)))
                     .append(": ")
                     .append(count)
-                    .append(" голосів\n");
+                    .append(" голосів\n\n");
         }
 
         InlineKeyboardMarkup markup = buildKeyboard();
@@ -232,7 +232,7 @@ public class VoteBot extends TelegramLongPollingBot {
             text.append(formatOption(options.get(idx)))
                     .append(": ")
                     .append(count)
-                    .append(" голосів\n");
+                    .append(" голосів\n\n");
         }
 
         try {
