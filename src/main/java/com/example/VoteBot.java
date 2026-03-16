@@ -18,7 +18,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class VoteBot extends TelegramLongPollingBot {
 
-    private static final String GROUP_CHAT_ID = "-1003467071058";
+    private static final String GROUP_CHAT_ID =
+//            "-1003467071058";
+                "-1003860160178"; //Test Group
 
     private static final Set<Long> ADMIN_IDS = Set.of(
             875558201L,
