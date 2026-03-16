@@ -250,7 +250,7 @@ public class VoteBot extends TelegramLongPollingBot {
     private String formatOption(String option) {
         String[] parts = option.split(" ", 3); // Ім'я Прізвище Команда
         if (parts.length < 3) return option;
-        return parts[0] + " " + parts[1] + "\n🏟 " + parts[2];
+        return parts[0] + " " + parts[1] + "\n⚽ " + parts[2];
     }
 
     private Map<Integer, Integer> countVotes() {
